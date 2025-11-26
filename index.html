@@ -24,7 +24,6 @@
       appearance:none; border:0; border-radius:14px; padding:12px 14px;
       background:#2f81f7; color:#fff; font-weight:700; cursor:pointer;
     }
-    button.secondary{ background:#1f2a3a; color:#e6edf3; }
     button:disabled{ opacity:.6; cursor:not-allowed; }
     input{
       flex:1;
@@ -37,11 +36,6 @@
       outline:none;
     }
     input::placeholder{ color:#6f88a3; }
-    code{
-      display:block; padding:10px 12px; border-radius:12px;
-      background:#0b1220; border:1px solid #22314a; overflow:auto;
-      font-size:13px; color:#cfe3ff;
-    }
     .muted{ color:#9fb0c0; font-size:13px; line-height:1.5; }
     .ok{ color:#7ee787; }
     .warn{ color:#ffdf5d; }
@@ -70,16 +64,6 @@
         <div class="small">送出後會自動前往修繕表單。</div>
       </div>
 
-      <!-- 測試資訊（可留可刪） -->
-      <div id="debugBox" class="hide" style="margin-top:14px;">
-        <div class="divider"></div>
-        <div class="muted">（測試資訊）UID：</div>
-        <code id="uidBox">-</code>
-        <div class="row">
-          <button id="btnGoRepair" class="secondary">直接前往修繕（測試）</button>
-        </div>
-      </div>
-
       <div class="muted" style="margin-top:14px;">
         若卡住 5 秒以上，請回到 LINE 再點一次「我要修繕」。
       </div>
@@ -98,8 +82,8 @@ const LIFF_ID = "2006833424-YW942oyx";
 const REPAIR_URL = (uid) =>
   `https://ap13.ragic.com/OnePlaceLiving/repair/24?webview&webaction=form&ver=new&version=2&pfv1016370=${encodeURIComponent(uid)}`;
 
-// 3) 只用這一支 webhook：同時負責「查是否綁定」+「用 phone 綁定」
-const N8N_CHECK_UID_ENDPOINT = "https://kehsin.oneplace.com.tw/webhook-test/check-uid";
+// 3) 正式 webhook（同時負責「查是否綁定」+「用 phone 綁定」）
+const N8N_CHECK_UID_ENDPOINT = "https://kehsin.oneplace.com.tw/webhook/check-uid";
 
 // 4) 在 LINE 內開啟要內開或外開
 const OPEN_EXTERNAL = false;
@@ -135,10 +119,7 @@ async function postJson(url, body){
 
 function normalizePhone(raw){
   const s = (raw || "").trim().replace(/\s|-/g, "");
-  // 台灣手機：09xxxxxxxx
   if (/^09\d{8}$/.test(s)) return s;
-
-  // 若使用者輸入 +8869xxxxxxxx / 8869xxxxxxxx，轉回 09xxxxxxxx
   if (/^\+?8869\d{8}$/.test(s)) return "0" + s.replace(/^\+?886/, "");
   return "";
 }
@@ -157,10 +138,6 @@ async function main(){
 
   const repairUrl = REPAIR_URL(uid);
 
-  // （測試）顯示 UID
-  $("uidBox").textContent = uid;
-  $("btnGoRepair").onclick = () => openUrl(repairUrl);
-
   // 1) 先查是否綁定（只送 uid）
   setStatus("檢查綁定狀態中…", "muted");
   const resp = await postJson(N8N_CHECK_UID_ENDPOINT, { uid, next: repairUrl });
@@ -172,17 +149,8 @@ async function main(){
   }
 
   // 2) 未綁定：同頁顯示手機輸入框
-  //   你的 n8n 建議回：{ bound:false, needPhone:true }
-  if (resp?.needPhone !== false) {
-    setStatus("尚未綁定，請輸入手機號碼完成綁定…", "warn");
-    $("phoneBox").classList.remove("hide");
-    $("debugBox").classList.remove("hide");
-  } else {
-    // 若你想讓 n8n 控制：也可以回 message
-    setStatus(resp?.message || "尚未綁定", "warn");
-    $("phoneBox").classList.remove("hide");
-    $("debugBox").classList.remove("hide");
-  }
+  setStatus("尚未綁定，請輸入手機號碼完成綁定…", "warn");
+  $("phoneBox").classList.remove("hide");
 
   // 3) 使用者送出手機 → 同一支 webhook，帶 phone
   $("btnBindPhone").onclick = async () => {
@@ -212,8 +180,6 @@ async function main(){
 main().catch(err => {
   console.error(err);
   setStatus(`發生錯誤：${err?.message || err}`, "err");
-  $("phoneBox").classList.remove("hide");
-  $("debugBox").classList.remove("hide");
 });
 </script>
 </body>

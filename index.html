@@ -19,13 +19,24 @@
       background:#101826; border:1px solid #1f2a3a; border-radius:18px;
       padding:16px; box-shadow:0 8px 30px rgba(0,0,0,.35);
     }
-    .row{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; align-items:center; }
     button{
       appearance:none; border:0; border-radius:14px; padding:12px 14px;
       background:#2f81f7; color:#fff; font-weight:700; cursor:pointer;
     }
     button.secondary{ background:#1f2a3a; color:#e6edf3; }
     button:disabled{ opacity:.6; cursor:not-allowed; }
+    input{
+      flex:1;
+      padding:12px 14px;
+      border-radius:14px;
+      border:1px solid #22314a;
+      background:#0b1220;
+      color:#e6edf3;
+      font-size:15px;
+      outline:none;
+    }
+    input::placeholder{ color:#6f88a3; }
     code{
       display:block; padding:10px 12px; border-radius:12px;
       background:#0b1220; border:1px solid #22314a; overflow:auto;
@@ -36,24 +47,36 @@
     .warn{ color:#ffdf5d; }
     .err{ color:#ff9b9b; }
     .hide{ display:none; }
+    .divider{ height:1px; background:#1f2a3a; margin:14px 0; }
+    .small{ font-size:12px; color:#9fb0c0; line-height:1.5; }
   </style>
 </head>
 
 <body>
   <div class="wrap">
     <div class="card">
-      <div id="title" style="font-size:18px;font-weight:800;">我要修繕</div>
+      <div style="font-size:18px;font-weight:800;">我要修繕</div>
       <div id="status" class="muted" style="margin-top:8px;">初始化中…</div>
 
+      <!-- ✅ 未綁定時：同頁輸入手機 -->
+      <div id="phoneBox" class="hide" style="margin-top:14px;">
+        <div class="divider"></div>
+        <div class="muted">尚未綁定，請輸入手機號碼完成綁定：</div>
+        <div class="row">
+          <input id="phoneInput" type="tel" inputmode="numeric" autocomplete="tel"
+                 placeholder="09xxxxxxxx" maxlength="10" />
+          <button id="btnBindPhone">送出</button>
+        </div>
+        <div class="small">送出後會自動前往修繕表單。</div>
+      </div>
+
+      <!-- 測試資訊（可留可刪） -->
       <div id="debugBox" class="hide" style="margin-top:14px;">
+        <div class="divider"></div>
         <div class="muted">（測試資訊）UID：</div>
         <code id="uidBox">-</code>
         <div class="row">
           <button id="btnGoRepair" class="secondary">直接前往修繕（測試）</button>
-          <button id="btnGoBind" class="secondary">前往綁定表單（測試）</button>
-        </div>
-        <div class="muted" style="margin-top:10px;">
-          你還沒接 n8n 時，可以靠這兩顆按鈕測端到端跳轉是否正常。
         </div>
       </div>
 
@@ -71,36 +94,25 @@
 // 1) 你的 LIFF ID
 const LIFF_ID = "2006833424-YW942oyx";
 
-// 2) 修繕表單（已綁定後要去的地方）
-//    你原本的：repair/24 + pfv1016370=uid
+// 2) 修繕表單網址（帶入 UID）
 const REPAIR_URL = (uid) =>
   `https://ap13.ragic.com/OnePlaceLiving/repair/24?webview&webaction=form&ver=new&version=2&pfv1016370=${encodeURIComponent(uid)}`;
 
-// 3) （之後接上）n8n 檢查 uid 是否已綁定的 webhook
-//    期望回傳 JSON：{ "bound": true } 或 { "bound": false }
-//    也可回傳：{ "bound": true, "redirectUrl": "..." }
-const N8N_CHECK_UID_ENDPOINT = "https://kehsin.oneplace.com.tw/webhook-test/check-uid"; // 例如：https://你的n8n域名/webhook/check-uid
+// 3) 只用這一支 webhook：同時負責「查是否綁定」+「用 phone 綁定」
+const N8N_CHECK_UID_ENDPOINT = "https://kehsin.oneplace.com.tw/webhook-test/check-uid";
 
-// 4) （你想用 n8n 表單收電話）未綁定時要導去的「n8n 表單」網址
-//    系統會自動帶：?uid=...&next=...(修繕URL)
-//    n8n 表單送出後，你讓流程：用 uid+phone 綁定成功 -> redirect 到 next
-const N8N_BIND_FORM_URL = "https://kehsin.oneplace.com.tw/webhook-test/bind-by-phone"; // 例如：https://你的n8n域名/form/bind-phone
-
-// 5) 在 LINE 內開啟 Ragic / n8n 表單時，要用內開還是外開？
-//    - external:false 會在 LINE 內建瀏覽器開（通常最順）
-//    - external:true  會跳系統瀏覽器（有時某些站對內嵌較挑）
+// 4) 在 LINE 內開啟要內開或外開
 const OPEN_EXTERNAL = false;
 
 /** ========================= */
 
 const $ = (id) => document.getElementById(id);
-const setStatus = (html, cls="muted") => {
+const setStatus = (text, cls="muted") => {
   $("status").className = cls;
-  $("status").textContent = html;
+  $("status").textContent = text;
 };
 
 function openUrl(url){
-  // 在 LIFF 環境用 openWindow；不在則用 location
   if (window.liff && liff.isInClient()) {
     liff.openWindow({ url, external: OPEN_EXTERNAL });
   } else {
@@ -115,77 +127,92 @@ async function postJson(url, body){
     body: JSON.stringify(body)
   });
   const text = await res.text();
-  let data = null;
+  let data;
   try { data = JSON.parse(text); } catch { data = { raw: text }; }
   if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
   return data;
+}
+
+function normalizePhone(raw){
+  const s = (raw || "").trim().replace(/\s|-/g, "");
+  // 台灣手機：09xxxxxxxx
+  if (/^09\d{8}$/.test(s)) return s;
+
+  // 若使用者輸入 +8869xxxxxxxx / 8869xxxxxxxx，轉回 09xxxxxxxx
+  if (/^\+?8869\d{8}$/.test(s)) return "0" + s.replace(/^\+?886/, "");
+  return "";
 }
 
 async function main(){
   await liff.init({ liffId: LIFF_ID });
 
   if (!liff.isLoggedIn()){
-    // 會導回本頁
     liff.login({ redirectUri: location.href });
     return;
   }
 
   const profile = await liff.getProfile();
   const uid = profile?.userId;
-
   if (!uid) throw new Error("未取得 UID（請確認此頁確實用 LIFF 打開）");
 
   const repairUrl = REPAIR_URL(uid);
 
-  // 測試 UI（n8n 未接時可用）
+  // （測試）顯示 UID
   $("uidBox").textContent = uid;
   $("btnGoRepair").onclick = () => openUrl(repairUrl);
-  $("btnGoBind").onclick = () => {
-    if (!N8N_BIND_FORM_URL) {
-      alert("尚未設定 N8N_BIND_FORM_URL");
-      return;
-    }
-    const bindUrl = `${N8N_BIND_FORM_URL}?uid=${encodeURIComponent(uid)}&next=${encodeURIComponent(repairUrl)}`;
-    openUrl(bindUrl);
-  };
 
-  // 還沒接 n8n：先讓你能架上線測試跳轉
-  if (!N8N_CHECK_UID_ENDPOINT){
-    setStatus("尚未接上 n8n 檢查流程，已進入測試模式。", "warn");
-    $("debugBox").classList.remove("hide");
-    return;
-  }
-
-  // 正式流程：先查 uid 是否已綁定
+  // 1) 先查是否綁定（只送 uid）
   setStatus("檢查綁定狀態中…", "muted");
-  const resp = await postJson(N8N_CHECK_UID_ENDPOINT, { uid });
+  const resp = await postJson(N8N_CHECK_UID_ENDPOINT, { uid, next: repairUrl });
 
-  // 支援兩種回傳：
-  // A) { bound: true/false }
-  // B) { bound: true/false, redirectUrl: "..." }
-  const bound = !!resp?.bound;
-
-  if (bound){
+  if (!!resp?.bound){
     setStatus("已綁定，前往修繕表單…", "ok");
     openUrl(resp?.redirectUrl || repairUrl);
     return;
   }
 
-  // 未綁定 → 轉到 n8n 表單收電話
-  if (!N8N_BIND_FORM_URL){
-    setStatus("尚未綁定，但你尚未設定綁定表單網址（N8N_BIND_FORM_URL）。", "err");
+  // 2) 未綁定：同頁顯示手機輸入框
+  //   你的 n8n 建議回：{ bound:false, needPhone:true }
+  if (resp?.needPhone !== false) {
+    setStatus("尚未綁定，請輸入手機號碼完成綁定…", "warn");
+    $("phoneBox").classList.remove("hide");
     $("debugBox").classList.remove("hide");
-    return;
+  } else {
+    // 若你想讓 n8n 控制：也可以回 message
+    setStatus(resp?.message || "尚未綁定", "warn");
+    $("phoneBox").classList.remove("hide");
+    $("debugBox").classList.remove("hide");
   }
 
-  setStatus("尚未綁定，將前往綁定表單…", "warn");
-  const bindUrl = `${N8N_BIND_FORM_URL}?uid=${encodeURIComponent(uid)}&next=${encodeURIComponent(repairUrl)}`;
-  openUrl(bindUrl);
+  // 3) 使用者送出手機 → 同一支 webhook，帶 phone
+  $("btnBindPhone").onclick = async () => {
+    const phone = normalizePhone($("phoneInput").value);
+    if (!phone){
+      alert("請輸入正確手機號碼（09xxxxxxxx）");
+      return;
+    }
+
+    $("btnBindPhone").disabled = true;
+    try{
+      setStatus("綁定中…", "muted");
+      const resp2 = await postJson(N8N_CHECK_UID_ENDPOINT, { uid, phone, next: repairUrl });
+
+      if (!!resp2?.bound){
+        setStatus("綁定成功，前往修繕表單…", "ok");
+        openUrl(resp2?.redirectUrl || repairUrl);
+      } else {
+        setStatus(resp2?.message || "綁定失敗，請再試一次", "err");
+      }
+    } finally {
+      $("btnBindPhone").disabled = false;
+    }
+  };
 }
 
 main().catch(err => {
   console.error(err);
   setStatus(`發生錯誤：${err?.message || err}`, "err");
+  $("phoneBox").classList.remove("hide");
   $("debugBox").classList.remove("hide");
 });
 </script>

@@ -96,10 +96,28 @@ const setStatus = (text, cls="muted") => {
   $("status").textContent = text;
 };
 
-function openUrl(url){
-  // ✅ 同一個 WebView 直接換頁（不會跳出 LINE 外部瀏覽器）
-  location.href = url;
+function openUrlAndClose(url){
+  // 如果不在 LINE Client（例如外部瀏覽器測試），就退回原本換頁
+  if (!window.liff || !liff.isInClient?.()){
+    location.href = url;
+    return;
+  }
+
+  // 先開新視窗 / 新頁，再關掉目前 LIFF
+  try {
+    liff.openWindow({ url, external: OPEN_EXTERNAL }); // OPEN_EXTERNAL 你原本就有
+  } catch (e) {
+    // openWindow 失敗就退回原本換頁
+    location.href = url;
+    return;
+  }
+
+  // 稍微延遲再關，避免某些手機還沒打開就被關掉
+  setTimeout(() => {
+    try { liff.closeWindow(); } catch (e) {}
+  }, 250);
 }
+
 
 
 async function postJson(url, body){
@@ -142,7 +160,7 @@ async function main(){
 
   if (!!resp?.bound){
     setStatus("已綁定，前往修繕表單…", "ok");
-    openUrl(resp?.redirectUrl || repairUrl);
+    openUrlAndClose(resp?.redirectUrl || repairUrl);
     return;
   }
 
@@ -165,7 +183,7 @@ async function main(){
 
       if (!!resp2?.bound){
         setStatus("綁定成功，前往修繕表單…", "ok");
-        openUrl(resp2?.redirectUrl || repairUrl);
+        openUrlAndClose(resp2?.redirectUrl || repairUrl);
       } else {
         setStatus(resp2?.message || "綁定失敗，請再試一次", "err");
       }

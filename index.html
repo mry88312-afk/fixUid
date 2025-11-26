@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>我要修繕</title>
 
-  <!-- LIFF SDK -->
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 
   <style>
@@ -24,9 +23,7 @@
       appearance:none; border:0; border-radius:14px; padding:12px 14px;
       background:#2f81f7; color:#fff; font-weight:700; cursor:pointer;
     }
-    button.secondary{
-      background:#1f6feb;
-    }
+    button.secondary{ background:#1f6feb; }
     button:disabled{ opacity:.6; cursor:not-allowed; }
     input{
       flex:1;
@@ -55,7 +52,6 @@
       <div style="font-size:18px;font-weight:800;">我要修繕</div>
       <div id="status" class="muted" style="margin-top:8px;">初始化中…</div>
 
-      <!-- ✅ 未綁定時：同頁輸入手機 -->
       <div id="phoneBox" class="hide" style="margin-top:14px;">
         <div class="divider"></div>
         <div class="muted">尚未綁定，請輸入手機號碼完成綁定：</div>
@@ -68,7 +64,6 @@
 
         <div class="small">送出後會自動前往修繕表單。</div>
 
-        <!-- ✅ 綁定失敗時：顯示「點擊並傳送」 -->
         <div id="contactBox" class="hide" style="margin-top:12px;">
           <div class="muted">若仍無法綁定，可改用 LINE 客服協助：</div>
           <div class="row">
@@ -85,28 +80,17 @@
   </div>
 
 <script>
-/** =========================
- *  ✅ 設定區（你只需要改這裡）
- *  ========================= */
-
-// 1) 你的 LIFF ID
+/** ===== 設定區 ===== */
 const LIFF_ID = "2006833424-YW942oyx";
 
-// 2) 修繕表單網址（帶入 UID）
 const REPAIR_URL = (uid) =>
   `https://ap13.ragic.com/OnePlaceLiving/repair/24?webview&webaction=form&ver=new&version=2&pfv1016370=${encodeURIComponent(uid)}`;
 
-// 3) webhook：負責「查是否綁定」+「用 phone 綁定」
-//    ✅ 建議回 JSON，不要做 Redirect (Location header)
 const N8N_CHECK_UID_ENDPOINT = "https://kehsin.oneplace.com.tw/webhook/check-uid";
 
-// 4) 在 LINE 內開啟要內開或外開
-const OPEN_EXTERNAL = false;
-
-// 5) LINE 客服 OA（oaMessage 的 @ 後面那串）
+// LINE 客服 OA（@ 後面那串）
 const LINE_OA_ID = "757heklz";
-
-/** ========================= */
+/** ===== /設定區 ===== */
 
 const $ = (id) => document.getElementById(id);
 const setStatus = (text, cls="muted") => {
@@ -114,20 +98,23 @@ const setStatus = (text, cls="muted") => {
   $("status").textContent = text;
 };
 
-function openUrlAndClose(url){
-  // 外部瀏覽器測試：直接換頁
+// ✅ 成功：留在 LINE 內同一個 WebView，直接換到修繕表單（不關閉、不另開）
+function openInSameWebView(url){
+  location.href = url;
+}
+
+// ✅ 失敗：才跳到 LINE 客服聊天室，然後關掉本 LIFF 頁面
+function openLineChatAndClose(url){
   if (!window.liff || !liff.isInClient?.()){
     location.href = url;
     return;
   }
-
   try {
-    liff.openWindow({ url, external: OPEN_EXTERNAL });
+    liff.openWindow({ url, external: false }); // 固定 false：在 LINE 內開
   } catch (e) {
     location.href = url;
     return;
   }
-
   setTimeout(() => {
     try { liff.closeWindow(); } catch (e) {}
   }, 250);
@@ -153,17 +140,17 @@ function normalizePhone(raw){
   return "";
 }
 
-// ✅ 前端自己組 LINE 客服連結（避免 n8n 傳 redirectUrl / header 地雷）
+// ✅ 正確：oaMessage@xxxx（沒有 /@），且 query 要 encode
 function buildLineOaMessageUrl(phone){
   const text = `查不到我的電話：${phone}，請協助`;
-  return `https://line.me/R/oaMessage/@${LINE_OA_ID}/?` + encodeURIComponent(text);
+  return `https://line.me/R/oaMessage@${LINE_OA_ID}/?` + encodeURIComponent(text);
 }
 
 function showContactButton(phone){
   $("contactBox").classList.remove("hide");
   $("btnContact").onclick = () => {
     const url = buildLineOaMessageUrl(phone);
-    openUrlAndClose(url);
+    openLineChatAndClose(url); // 只有這裡會跳 LINE + 關閉
   };
 }
 
@@ -181,21 +168,21 @@ async function main(){
 
   const repairUrl = REPAIR_URL(uid);
 
-  // 1) 先查是否綁定（只送 uid）
+  // 1) 查是否綁定（只送 uid）
   setStatus("檢查綁定狀態中…", "muted");
   const resp = await postJson(N8N_CHECK_UID_ENDPOINT, { uid, next: repairUrl });
 
   if (!!resp?.bound){
     setStatus("已綁定，前往修繕表單…", "ok");
-    openUrlAndClose(repairUrl);
+    openInSameWebView(repairUrl); // ✅ 成功：同頁進修繕
     return;
   }
 
-  // 2) 未綁定：顯示手機輸入框
+  // 2) 未綁定：顯示輸入框
   setStatus("尚未綁定，請輸入手機號碼完成綁定…", "warn");
   $("phoneBox").classList.remove("hide");
 
-  // 3) 使用者送出手機 → webhook 綁定
+  // 3) 送出手機 → 綁定
   $("btnBindPhone").onclick = async () => {
     const phone = normalizePhone($("phoneInput").value);
     if (!phone){
@@ -203,21 +190,19 @@ async function main(){
       return;
     }
 
-    // 每次送出先把客服按鈕收起來（避免沿用上次 phone）
     $("contactBox").classList.add("hide");
-
     $("btnBindPhone").disabled = true;
+
     try{
       setStatus("綁定中…", "muted");
       const resp2 = await postJson(N8N_CHECK_UID_ENDPOINT, { uid, phone, next: repairUrl });
 
       if (!!resp2?.bound){
         setStatus("綁定成功，前往修繕表單…", "ok");
-        openUrlAndClose(repairUrl);
+        openInSameWebView(repairUrl); // ✅ 成功：同頁進修繕
       } else {
-        // ✅ 綁定失敗：顯示「點擊並傳送」讓他找客服
         setStatus(resp2?.message || "綁定失敗，請改用 LINE 客服協助", "err");
-        showContactButton(phone);
+        showContactButton(phone); // ✅ 失敗：才讓他點按鈕跳客服
       }
     } finally {
       $("btnBindPhone").disabled = false;

@@ -83,7 +83,7 @@ const REPAIR_URL = (uid) =>
   `https://ap13.ragic.com/OnePlaceLiving/repair/24?webview&webaction=form&ver=new&version=2&pfv1016370=${encodeURIComponent(uid)}`;
 
 // 3) 正式 webhook（同時負責「查是否綁定」+「用 phone 綁定」）
-const N8N_CHECK_UID_ENDPOINT = "https://kehsin.oneplace.com.tw/webhook-test/check-uid";
+const N8N_CHECK_UID_ENDPOINT = "https://kehsin.oneplace.com.tw/webhook/check-uid";
 
 // 4) 在 LINE 內開啟要內開或外開
 const OPEN_EXTERNAL = false;

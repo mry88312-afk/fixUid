@@ -97,12 +97,10 @@ const setStatus = (text, cls="muted") => {
 };
 
 function openUrl(url){
-  if (window.liff && liff.isInClient()) {
-    liff.openWindow({ url, external: OPEN_EXTERNAL });
-  } else {
-    location.href = url;
-  }
+  // ✅ 同一個 WebView 直接換頁（不會跳出 LINE 外部瀏覽器）
+  location.href = url;
 }
+
 
 async function postJson(url, body){
   const res = await fetch(url, {

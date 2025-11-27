@@ -143,7 +143,7 @@ function normalizePhone(raw){
 // ✅ 正確：oaMessage@xxxx（沒有 /@），且 query 要 encode
 function buildLineOaMessageUrl(phone){
   const text = `查不到我的電話：${phone}，請協助`;
-  return `https://line.me/R/oaMessage@${LINE_OA_ID}/?` + encodeURIComponent(text);
+  return `https://line.me/R/oaMessage/@${LINE_OA_ID}/?` + encodeURIComponent(text);
 }
 
 function showContactButton(phone){
